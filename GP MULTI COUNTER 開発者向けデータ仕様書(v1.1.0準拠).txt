@@ -1,0 +1,133 @@
+GP MULTI COUNTER 開発者向けデータ仕様書（v1.1.0 準拠）
+
+
+概要
+────────────────────────
+このシステムは BroadcastChannel を通じて JSON データを送受信します。
+オリジナルの表示画面（display.html / display_*.html）を作成する際の参考にしてください。
+
+
+1. 同期チャンネル名
+────────────────────────
+obs_counter_sync
+
+
+2. メッセージ形式
+────────────────────────
+BroadcastChannel で送信されるオブジェクトは以下の通りです。
+
+{
+  "type": "update",
+  "payload": [
+    {
+      "id": "counter1",
+      "label": "表示名",
+      "count": 0,
+      "unit": "回",
+      "goalCount": 100,
+      "showGoal": false,
+      "bgColor": "rgba(0,0,0,0.5)",
+      "borderColor": "#ffffff",
+      "textColor": "#ffffff",
+      "labelSize": "20px",
+      "countSize": "36px",
+      "isBold": true,
+      "isShadow": true,
+      "fontFamily": "sans-serif"
+    }
+  ]
+}
+
+
+3. 各項目の詳細
+────────────────────────
+
+キー        : id
+型          : String
+内容        : カウンター識別子（counter1, counter2 など）
+
+キー        : label
+型          : String
+内容        : 表示ラベル（例: "現在の視聴者"）
+
+キー        : count
+型          : Number
+内容        : 現在の数値（カウンターのメイン値）
+
+キー        : unit
+型          : String
+内容        : 単位（例: "人", "kg"）
+
+キー        : goalCount
+型          : Number
+内容        : 目標値
+
+キー        : showGoal
+型          : Boolean
+内容        : 目標表示フラグ
+備考        : true の時のみ目標を表示する設計を推奨
+
+キー        : bgColor
+型          : String
+内容        : 背景色（rgba(r, g, b, a) 形式）
+
+キー        : borderColor
+型          : String
+内容        : 枠線色（rgba(r, g, b, a) または Hex 形式）
+
+キー        : textColor
+型          : String
+内容        : 文字色（Hex 形式）
+
+キー        : labelSize
+型          : String
+内容        : ラベルサイズ（"20px" などの単位付き文字列）
+
+キー        : countSize
+型          : String
+内容        : 数値サイズ（"36px" などの単位付き文字列）
+
+キー        : isBold
+型          : Boolean
+内容        : 太字フラグ
+
+キー        : isShadow
+型          : Boolean
+内容        : 文字影フラグ
+
+キー        : fontFamily
+型          : String
+内容        : フォント指定
+備考        : CSS の font-family にそのまま渡せる形式
+
+
+4. 最小実装サンプル（JavaScript）
+────────────────────────
+独自の表示部を作る場合、以下の受信ロジックが最小構成になります。
+また、ID判定ロジック（URLパラメータ or ファイル名）を含めることで、
+OBS上でのファイル名リネーム（例: display_counter2.html）に対応できます。
+
+const channel = new BroadcastChannel('obs_counter_sync');
+
+// ID判定ロジック（URLパラメータ or ファイル名）
+function getMyId() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('id')) return params.get('id');
+
+  const fileName = window.location.pathname.split('/').pop();
+  const match = fileName.match(/counter(\d+)/i);
+  return match ? 'counter' + match[1] : 'counter1';
+}
+
+const MY_ID = getMyId();
+
+channel.onmessage = (e) => {
+  if (e.data.type === 'update') {
+    const myData = e.data.payload.find(c => c.id === MY_ID);
+    if (myData) {
+      // ここで HTML 要素を更新する
+      document.getElementById('display').textContent = myData.count;
+      document.body.style.color = myData.textColor;
+    }
+  }
+};

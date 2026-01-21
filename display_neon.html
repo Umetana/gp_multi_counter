@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <title>GP Neon Skin</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: transparent; 
+            font-family: sans-serif; 
+            overflow: hidden; 
+        }
+
+        #display-area {
+            padding: 20px;
+            display: inline-block;
+        }
+
+        /* ネオン管の質感を出すためのベース設定 */
+        .neon-text {
+            line-height: 1.2;
+            transition: all 0.3s ease;
+        }
+
+        #label-node {
+            font-size: 18px;
+            margin-bottom: 4px;
+            opacity: 0.8;
+        }
+
+        #count-node {
+            /* 初期値は大きめに設定 */
+            font-size: 48px;
+        }
+
+        /* 配信画面に映らないデバッグエリア */
+        .debug-settings {
+            margin-top: 50px;
+            padding: 10px;
+            background: rgba(0,0,0,0.8);
+            color: #888;
+            font-size: 10px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="display-area">
+        <div id="label-node" class="neon-text">Loading...</div>
+        <div id="count-node" class="neon-text">0</div>
+    </div>
+
+    <div class="debug-settings">
+        Target ID: <span id="target-id">-</span>
+    </div>
+
+<script>
+(function() {
+    // 仕様書準拠のID判定ロジック
+    function getMyId() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('id')) return params.get('id');
+        const fileName = window.location.pathname.split('/').pop();
+        const match = fileName.match(/counter(\d+)/i);
+        return match ? 'counter' + match[1] : 'counter1';
+    }
+
+    const MY_ID = getMyId();
+    document.getElementById('target-id').textContent = MY_ID;
+    const ch = new BroadcastChannel('obs_counter_sync');
+
+    function apply(d) {
+        if (!d || d.id !== MY_ID) return;
+
+        const label = document.getElementById('label-node');
+        const count = document.getElementById('count-node');
+
+        // 文字内容の反映
+        label.textContent = d.label || "";
+        count.textContent = d.count + (d.unit || "");
+
+        // スタイルの反映
+        const color = d.textColor || "#ffffff";
+        const fontFamily = d.fontFamily || "sans-serif";
+        
+        [label, count].forEach(el => {
+            el.style.color = color;
+            el.style.fontFamily = fontFamily;
+            el.style.fontWeight = d.isBold ? "bold" : "normal";
+
+            // ネオン効果（text-shadowを重ねて発光を表現）
+            // isShadowがONの場合、より深く強力な発光にする
+            if (d.isShadow) {
+                el.style.textShadow = `
+                    0 0 5px #fff,
+                    0 0 10px ${color},
+                    0 0 20px ${color},
+                    0 0 40px ${color}
+                `;
+            } else {
+                el.style.textShadow = `0 0 5px ${color}`;
+            }
+        });
+
+        // 個別のサイズ反映
+        label.style.fontSize = d.labelSize || "18px";
+        count.style.fontSize = d.countSize || "48px";
+    }
+
+    // 同期と初期化
+    ch.onmessage = (e) => {
+        if (e.data?.type === 'update' && Array.isArray(e.data.payload)) {
+            const me = e.data.payload.find(x => x.id === MY_ID);
+            if (me) apply(me);
+        }
+    };
+
+    const saved = localStorage.getItem('allCountersSettings');
+    if (saved) {
+        const all = JSON.parse(saved);
+        const me = all.find(x => x.id === MY_ID);
+        if (me) apply(me);
+    }
+})();
+</script>
+</body>
+</html>

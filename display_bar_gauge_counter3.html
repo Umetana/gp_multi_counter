@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<!-- 
+  OBS Gauge Skin v2.1.0
+  - 設定パネル一体型クロップ運用モデル
+  - 状態管理（barColorAlpha/barAlpha）の不整合を修正済
+-->
+<meta charset="utf-8" />
+<style>
+  /* 表示エリアの基本スタイル */
+  body { margin: 0; background: transparent; font-family: sans-serif; color: #fff; overflow-x: hidden; }
+  
+  /* クロップされる表示部（上部） */
+  .display-section { padding: 10px; display: inline-block; }
+
+  .wrap {
+    display: inline-block;
+    padding: 6px; 
+    border-radius: 999px;
+    border: 2px solid rgba(255,255,255,.9);
+    background: rgba(0,0,0,.35);
+  }
+
+  .gauge {
+    position: relative;
+    width: 420px;
+    height: 40px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.25);
+  }
+
+  .fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 0%;
+    transition: width .3s ease, background-color 0.1s linear;
+  }
+
+  .gauge.done .fill { width: 100% !important; }
+
+  .txt-container {
+    position: absolute; inset: 0;
+    display: flex; align-items: center;
+    padding: 0 16px; z-index: 2;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+    font-weight: bold; white-space: nowrap;
+  }
+
+  .label-text { font-size: 14px; margin-right: 12px; opacity: 0.9; }
+  .progress-num { flex: 1; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .percent-num { min-width: 50px; text-align: right; font-size: 14px; opacity: 0.9; }
+
+  /* 設定エリア（下部） */
+  .settings-section {
+    margin-top: 50px; 
+    padding: 15px;
+    background: rgba(40, 44, 52, 0.95);
+    border-top: 2px dashed #666;
+    display: inline-block;
+    color: #eee;
+    font-size: 12px;
+    border-radius: 8px;
+    min-width: 450px;
+  }
+  .settings-title { 
+    font-weight: bold; margin-bottom: 10px; color: #4a90e2; border-bottom: 1px solid #444; padding-bottom: 5px; 
+    display: flex; justify-content: space-between; align-items: flex-end;
+  }
+  .version-tag { font-size: 9px; color: #666; font-weight: normal; }
+  .s-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .s-row label { width: 110px; flex-shrink: 0; }
+  
+  input[type="text"] {
+    background: #1a1c23; border: 1px solid #555; color: #fff; 
+    padding: 4px 8px; border-radius: 4px; font-family: monospace; width: 85px;
+  }
+  input[type="range"] { flex-grow: 1; cursor: pointer; }
+  .val-disp { width: 35px; text-align: right; font-family: monospace; color: #4a90e2; font-weight: bold; }
+  input[type="color"] { border: none; background: none; cursor: pointer; width: 30px; height: 24px; padding: 0; }
+</style>
+</head>
+<body>
+
+  <div class="display-section">
+    <div id="box" class="wrap">
+      <div id="gauge" class="gauge">
+        <div id="fill" class="fill"></div>
+        <div class="txt-container">
+          <div id="label" class="label-text">Loading...</div>
+          <div id="left" class="progress-num">0 / 0</div>
+          <div id="right" class="percent-num">0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-title">
+      <span>🎨 ゲージ専用スキン設定 (ID: <span id="display-id">-</span>)</span>
+      <span class="version-tag">ver 2.1.1</span>
+    </div>
+    
+    <div class="s-row">
+      <label>通常バー色/不透明</label>
+      <input type="color" id="picker-barColor">
+      <input type="text" id="hex-barColor" placeholder="#4A90E2" maxlength="7">
+      <input type="range" id="alpha-barColor" min="0" max="1" step="0.01">
+      <div class="val-disp" id="disp-alpha-barColor">0.90</div>
+    </div>
+
+    <div class="s-row">
+      <label>達成バー色/不透明</label>
+      <input type="color" id="picker-doneColor">
+      <input type="text" id="hex-doneColor" placeholder="#27AE60" maxlength="7">
+      <input type="range" id="alpha-doneColor" min="0" max="1" step="0.01">
+      <div class="val-disp" id="disp-alpha-doneColor">0.95</div>
+    </div>
+  </div>
+
+<script>
+(function() {
+  // --- ID判定ロジック ---
+  function getMyId() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('id')) return params.get('id');
+
+    const fileName = window.location.pathname.split('/').pop();
+    const match = fileName.match(/counter(\d+)/i);
+    return match ? 'counter' + match[1] : 'counter1';
+  }
+
+  const MY_ID = getMyId();
+  document.getElementById('display-id').textContent = MY_ID;
+
+  const ch = new BroadcastChannel('obs_counter_sync');
+  let currentBaseData = null;
+
+  // --- スキン専用設定の管理 ---
+  const SKIN_STORAGE_KEY = 'gauge_skin_special_configs';
+  let skinConfig = { 
+    barColor: '#4a90e2', barAlpha: 0.9,
+    doneColor: '#27ae60', doneAlpha: 0.95
+  };
+
+  function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function loadSkinConfig() {
+    try {
+      const saved = localStorage.getItem(SKIN_STORAGE_KEY);
+      if (saved) {
+        const all = JSON.parse(saved);
+        if (all[MY_ID]) skinConfig = Object.assign(skinConfig, all[MY_ID]);
+      }
+    } catch(e){}
+    
+    // UI反映
+    ['barColor', 'doneColor'].forEach(key => {
+      const alphaKey = key.replace('Color', 'Alpha');
+      const hexVal = (skinConfig[key] || (key === 'barColor' ? "#4A90E2" : "#27AE60")).toUpperCase();
+      document.getElementById('hex-' + key).value = hexVal;
+      document.getElementById('picker-' + key).value = hexVal;
+      
+      const aVal = skinConfig[alphaKey] !== undefined ? skinConfig[alphaKey] : 0.9;
+      document.getElementById('alpha-' + key).value = aVal;
+      document.getElementById('disp-alpha-' + key).textContent = parseFloat(aVal).toFixed(2);
+    });
+  }
+
+  function saveSkinConfig() {
+    ['barColor', 'doneColor'].forEach(key => {
+      const alphaKey = key.replace('Color', 'Alpha');
+      const hexEl = document.getElementById('hex-' + key);
+      if (/^#[0-9A-F]{6}$/i.test(hexEl.value)) {
+        skinConfig[key] = hexEl.value;
+      }
+      const alphaEl = document.getElementById('alpha-' + key);
+      skinConfig[alphaKey] = parseFloat(alphaEl.value);
+      document.getElementById('disp-alpha-' + key).textContent = skinConfig[alphaKey].toFixed(2);
+    });
+
+    try {
+      const saved = localStorage.getItem(SKIN_STORAGE_KEY);
+      const all = saved ? JSON.parse(saved) : {};
+      all[MY_ID] = skinConfig;
+      localStorage.setItem(SKIN_STORAGE_KEY, JSON.stringify(all));
+    } catch(e){}
+
+    if(currentBaseData) apply(currentBaseData);
+  }
+
+  // リスナー設定
+  ['barColor', 'doneColor'].forEach(key => {
+    const hexInput = document.getElementById('hex-' + key);
+    const picker = document.getElementById('picker-' + key);
+    const alpha = document.getElementById('alpha-' + key);
+
+    hexInput.oninput = () => {
+      if(/^#[0-9A-F]{6}$/i.test(hexInput.value)) {
+        picker.value = hexInput.value;
+        saveSkinConfig();
+      }
+    };
+    picker.oninput = () => {
+      hexInput.value = picker.value.toUpperCase();
+      saveSkinConfig();
+    };
+    alpha.oninput = saveSkinConfig;
+  });
+
+  function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+
+  function apply(d) {
+    if(!d || d.id !== MY_ID) return;
+    currentBaseData = d;
+
+    document.getElementById('label').textContent = d.label || d.id;
+    const box = document.getElementById('box');
+    box.style.backgroundColor = d.bgColor || 'rgba(0,0,0,.35)';
+    box.style.borderColor = d.borderColor || 'rgba(255,255,255,.9)';
+    
+    const txtContainer = document.querySelector('.txt-container');
+    txtContainer.style.fontFamily = d.fontFamily || 'sans-serif';
+    txtContainer.style.color = d.textColor || '#fff';
+
+    const c = Number(d.count)||0;
+    const g = Number(d.goalCount)||0;
+    const fill  = document.getElementById('fill');
+    const gauge = document.getElementById('gauge');
+
+    const hasGoal = (d.showGoal && g > 0);
+    const pct = hasGoal ? (c / g) * 100 : 0;
+    
+    if (!hasGoal) {
+      document.getElementById('left').textContent = `${c}${d.unit || ''}`;
+      document.getElementById('right').textContent = `- %`;
+      fill.style.width = '0%';
+      gauge.classList.remove('done');
+      fill.style.backgroundColor = hexToRgba(skinConfig.barColor, skinConfig.barAlpha);
+    } else {
+      fill.style.width = clamp(pct, 0, 100) + '%';
+      document.getElementById('left').textContent = `${c} / ${g}`;
+      document.getElementById('right').textContent = `${Math.floor(clamp(pct,0,999))}%`;
+
+      if (c >= g) {
+        gauge.classList.add('done');
+        fill.style.backgroundColor = hexToRgba(skinConfig.doneColor, skinConfig.doneAlpha);
+      } else {
+        gauge.classList.remove('done');
+        fill.style.backgroundColor = hexToRgba(skinConfig.barColor, skinConfig.barAlpha);
+      }
+    }
+  }
+
+  // 初期化
+  loadSkinConfig();
+  
+  // 初回読み込み
+  const saved = localStorage.getItem('allCountersSettings');
+  if(saved){
+    const all = JSON.parse(saved);
+    const me = all.find(x => x.id === MY_ID);
+    if(me) apply(me);
+  }
+
+  ch.onmessage = (e) => {
+    if (e.data?.type === 'update' && Array.isArray(e.data.payload)) {
+      const me = e.data.payload.find(x => x.id === MY_ID);
+      if (me) apply(me);
+    }
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!-- OPS v1.1.1 GPマルチカウンター v1.1.0 対応版 -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>GP MULTI COUNTER - Ops</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 10px;
+            background-color: #2b2e3b;
+            color: #efefef;
+        }
+        .header {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .counter-item {
+            background-color: #383c4a;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .info { flex-grow: 1; }
+        .label-text { font-size: 11px; color: #aaa; display: block; margin-bottom: 2px; }
+        .count-val { font-size: 22px; font-weight: bold; color: #4a90e2; line-height: 1; }
+        .goal-info { font-size: 10px; color: #666; margin-left: 5px; }
+        .btns { display: flex; gap: 5px; }
+        button {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            background-color: #4a90e2;
+            color: white;
+            font-size: 16px;
+            user-select: none; /* OBSドックでの誤選択防止 */
+        }
+        button:hover { background-color: #5ba1f3; }
+        button.reset { background-color: #e74c3c; padding: 8px 10px; font-size: 12px; }
+        button:active { transform: translateY(1px); filter: brightness(0.9); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <span>カウンター操作</span>
+        <span id="counter-count" style="font-size: 10px; color: #888;"></span>
+    </div>
+    <div id="list">読み込み中...</div>
+
+    <script>
+        const channel = new BroadcastChannel('obs_counter_sync');
+        let allData = [];
+
+        function load() {
+            const saved = localStorage.getItem("allCountersSettings");
+            if (saved) {
+                allData = JSON.parse(saved);
+                render();
+            } else {
+                // 初回読み込み待ち
+                setTimeout(load, 500); 
+            }
+        }
+
+        function saveAndSync() {
+            localStorage.setItem("allCountersSettings", JSON.stringify(allData));
+            channel.postMessage({ type: 'update', payload: allData });
+        }
+
+        window.change = function(id, delta) {
+            const item = allData.find(c => c.id === id);
+            if (item) {
+                item.count = Math.max(0, item.count + delta);
+                saveAndSync();
+                render();
+            }
+        };
+
+        // OBSの制限を回避するためconfirmを削除
+        window.reset = function(id) {
+            const item = allData.find(c => c.id === id);
+            if (item) {
+                item.count = 0;
+                saveAndSync();
+                render();
+            }
+        };
+
+        function render() {
+            document.getElementById('counter-count').textContent = allData.length + '個のカウンター';
+            const container = document.getElementById('list');
+            if (allData.length === 0) {
+                container.innerHTML = '<div style="font-size:12px;color:#888;">設定からカウンターを追加してください</div>';
+                return;
+            }
+            container.innerHTML = allData.map(c => `
+                <div class="counter-item">
+                    <div class="info">
+                        <span class="label-text">${c.label}</span>
+                        <span class="count-val">${c.count}</span>
+                        ${c.showGoal ? `<span class="goal-info">/ ${c.goalCount}</span>` : ''}
+                    </div>
+                    <div class="btns">
+                        <button onclick="change('${c.id}', 1)">＋</button>
+                        <button onclick="change('${c.id}', -1)">−</button>
+                        <button class="reset" onclick="reset('${c.id}')">リ</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        channel.onmessage = (e) => {
+            if (e.data.type === 'update') {
+                allData = e.data.payload;
+                render();
+            }
+        };
+
+        load();
+    </script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!-- ファイル名、パラメーター両用版 v1.1.0 フォーマット仕様 -->
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  body{margin:0;background:transparent;font-family:sans-serif;}
+  .wrap{display:inline-block; padding:12px 16px; border-radius:10px; border:2px solid #fff; background:rgba(0,0,0,.45);}
+  .label{font-size:18px; margin-bottom:8px; white-space:nowrap;}
+  .row{display:flex; align-items:baseline; gap:8px; justify-content:space-between;}
+  .num{font-size:34px; font-weight:700; line-height:1;}
+  .unit{font-size:16px; opacity:.9;}
+  .goal{font-size:14px; opacity:.8; margin-left:6px;}
+  .bar{margin-top:10px; height:10px; border-radius:999px; background:rgba(255,255,255,.18); overflow:hidden;}
+  .fill{height:100%; width:0%; border-radius:999px; background:currentColor; transition:width .25s ease;}
+</style>
+</head>
+<body>
+  <div id="box" class="wrap">
+    <div id="label" class="label">読み込み中...</div>
+    <div class="row">
+      <div>
+        <span id="num" class="num">0</span>
+        <span id="unit" class="unit"></span>
+        <span id="goal" class="goal"></span>
+      </div>
+      <div id="pct" style="font-size:14px;opacity:.85;"></div>
+    </div>
+    <div id="bar" class="bar"><div id="fill" class="fill"></div></div>
+  </div>
+
+<script>
+
+ function detectCounterId(defaultId = 'counter1') {
+  // 1) query (?id=counter3)
+  const params = new URLSearchParams(location.search);
+  const q = params.get('id');
+  if (q) return q;
+
+  // 2) hash (#counter3 or #3)
+  const h = (location.hash || '').replace(/^#/, '');
+  if (h) {
+    if (/^counter\d+$/i.test(h)) return h;
+    if (/^\d+$/.test(h)) return 'counter' + h;
+  }
+
+  // 3) filename (display_counter3.html / counter3.html etc)
+  const path = (location.pathname || '').split('/').pop() || '';
+  // counter12 を拾う
+  const m = path.match(/counter(\d+)/i);
+  if (m) return 'counter' + m[1];
+
+  return defaultId;
+}
+
+const MY_ID = detectCounterId('counter1');
+
+(function(){
+  var params = new URLSearchParams(location.search);
+  var MY_COUNTER_ID = MY_ID;
+  var channel = new BroadcastChannel('obs_counter_sync');
+
+  function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+
+  function apply(data){
+    if(!data || data.id !== MY_ID) return;
+
+    // テキスト
+    document.getElementById('label').textContent = data.label || data.id;
+    document.getElementById('num').textContent = (data.count ?? 0);
+    document.getElementById('unit').textContent = data.unit ? (" " + data.unit) : "";
+
+    // スタイル（必要な分だけ）
+    var box = document.getElementById('box');
+    box.style.backgroundColor = data.bgColor || 'rgba(0,0,0,0.45)';
+    box.style.borderColor = data.borderColor || '#fff';
+    box.style.fontFamily = data.fontFamily || 'sans-serif';
+    document.body.style.color = data.textColor || '#fff';
+
+    // 進捗
+    var bar = document.getElementById('bar');
+    var fill = document.getElementById('fill');
+    var goalEl = document.getElementById('goal');
+    var pctEl = document.getElementById('pct');
+
+    if (data.showGoal && Number(data.goalCount) > 0) {
+      var c = Number(data.count) || 0;
+      var g = Number(data.goalCount) || 0;
+      var p = clamp((c / g) * 100, 0, 999); // 目標超えも許容したいなら上限広め
+      fill.style.width = clamp(p, 0, 100) + '%'; // バーは100%で止める
+      goalEl.textContent = ' / ' + g;
+      pctEl.textContent = Math.floor(clamp(p,0,999)) + '%';
+      bar.style.display = 'block';
+    } else {
+      // 目標表示しない場合：バーを消す（ここは好みで変えてOK）
+      bar.style.display = 'none';
+      goalEl.textContent = '';
+      pctEl.textContent = '';
+    }
+  }
+
+  // 初期値（いまのdisplay.htmlと同じ思想）
+  try {
+    var saved = localStorage.getItem("allCountersSettings");
+    if(saved){
+      var all = JSON.parse(saved);
+      for (var i=0;i<all.length;i++) if(all[i].id === MY_ID) apply(all[i]);
+    }
+  } catch(e){}
+
+  // 同期更新
+  channel.onmessage = function(e){
+    if(e.data && e.data.type === 'update' && Array.isArray(e.data.payload)){
+      var arr = e.data.payload;
+      for (var i=0;i<arr.length;i++) if(arr[i].id === MY_ID) apply(arr[i]);
+    }
+  };
+})();
+</script>
+</body>
+</html>
