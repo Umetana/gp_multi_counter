@@ -1,4 +1,4 @@
-# GP MULTI COUNTER
+# GP MULTI COUNTER v1.1.0
 
 GP MULTI COUNTER は、  
 OBS 配信向けのマルチカウンター管理・表示システムです。
@@ -124,3 +124,4 @@ MIT License
 - 本 README には、将来用または実験的な機能は記載していません
 - 現時点で安定して使える運用のみを記載しています
 - 詳細な仕様や拡張方法は別ドキュメントに分離しています
+
